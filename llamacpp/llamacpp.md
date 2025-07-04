@@ -338,7 +338,7 @@ llama.cpp项目初期就支持了llava，(lava.cpp,cli.cpp)，编译的llava-cli
 
 随后又支持了若干模型，模型越多，会话的chat模版越复杂，添加了若干 xxx-cli导致异常复杂
 
-最后引入了libmtmd替换lava.cpp，提供统一的命令行接口，mtmd-cli就可以加载若干不同模型
+最后引入了libmtmd替换lava.cpp，提供统一的命令行接口处理多模态输入，mtmd-cli就可以加载若干不同模型
 
 ### mmproj
 
@@ -351,6 +351,33 @@ llamacpp支持的多模态实现，首先需要一个embedding层对图片进行
 + llm
 + 处理图像的模型（encoding和projection两个工作）
 
+> 获取和使用
+
+这块还是看官网，提供了多种多样的模型和地址
+
+如果选择Gemma 3 vision就执行`llama-mtmd-cli -hf ggml-org/gemma-3-4b-it-GGUF`,注意1b版本不支持视觉，支持音频。4b及以上才支持视觉。
+
+cli下载的默认地址是`~/.cache/llama.cpp/ggml-org_gemma-3-4b-it-GGUF_gemma-3-4b-it-Q4_K_M.gguf`
+
+### 多模态使用
+
+正常指定基础模型和ViT结构的mmproj模型，使用：`llama-mtmd-cli -m {llm基础模型比如qwen2.5-1.5b-q4_0}.gguf --mmproj {mmproj模型}.gguf --image 图片.jpg`
+
+Qwen2.5-VL 只有在官方的库里下载才行，官方已经做好了转换：`https://github.com/ggml-org/llama.cpp/blob/master/docs/multimodal.md`
+
+`llama-server -m  模型` 本地加载即可，这里不用指定基础模型和mmproj模型，因为Qwen2.5VL已经打包在一起了
+
+gguf 工具可以将多个子模型打包成一个文件，结构如下
+
+```
+[gemma-3-4b-it-GGUF.gguf]
+├── [语言模型部分] → Gemma
+├── [图像编码器部分] → ViT
+├── [投影层] → 用于图像 embedding 映射到语言模型空间
+└── [配置信息] → 包含模型结构、输入格式等
+```
+
+llama.cpp也提供了模型转换工具，将模型转为gguf格式，具体看官网说明
 
 ## llama.cpp 的底层实现原理
 
