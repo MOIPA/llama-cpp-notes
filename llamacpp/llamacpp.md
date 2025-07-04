@@ -363,21 +363,10 @@ cli下载的默认地址是`~/.cache/llama.cpp/ggml-org_gemma-3-4b-it-GGUF_gemma
 
 正常指定基础模型和ViT结构的mmproj模型，使用：`llama-mtmd-cli -m {llm基础模型比如qwen2.5-1.5b-q4_0}.gguf --mmproj {mmproj模型}.gguf --image 图片.jpg`
 
-Qwen2.5-VL 只有在官方的库里下载才行，官方已经做好了转换：`https://github.com/ggml-org/llama.cpp/blob/master/docs/multimodal.md`
+Qwen2.5-VL 在ggml官方的库里下载最好，官方已经做好了转换：`https://github.com/ggml-org/llama.cpp/blob/master/docs/multimodal.md`
 
-`llama-server -m  模型` 本地加载即可，这里不用指定基础模型和mmproj模型，因为Qwen2.5VL已经打包在一起了
+注意：最好不要手动下载模型，而是 `llama-server -hf ggml/Qwen2.5... ` 会自动下载模型和mmproj，手动下载不要只下载模型，还要点开`files and versions`找到里面对应的mmproj模型下载。
 
-gguf 工具可以将多个子模型打包成一个文件，结构如下
-
-```
-[gemma-3-4b-it-GGUF.gguf]
-├── [语言模型部分] → Gemma
-├── [图像编码器部分] → ViT
-├── [投影层] → 用于图像 embedding 映射到语言模型空间
-└── [配置信息] → 包含模型结构、输入格式等
-```
-
-llama.cpp也提供了模型转换工具，将模型转为gguf格式，具体看官网说明
 
 ## llama.cpp 的底层实现原理
 
