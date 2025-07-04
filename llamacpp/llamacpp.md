@@ -361,11 +361,13 @@ cli下载的默认地址是`~/.cache/llama.cpp/ggml-org_gemma-3-4b-it-GGUF_gemma
 
 ### 多模态使用
 
-正常指定基础模型和ViT结构的mmproj模型，使用：`llama-mtmd-cli -m {llm基础模型比如qwen2.5-1.5b-q4_0}.gguf --mmproj {mmproj模型}.gguf --image 图片.jpg`
+正常指定基础模型和ViT结构的mmproj模型，手动加载本地模型使用：`llama-mtmd-cli -m {llm基础模型比如qwen2.5-1.5b-q4_0}.gguf --mmproj {mmproj模型}.gguf --image 图片.jpg`
 
 Qwen2.5-VL 在ggml官方的库里下载最好，官方已经做好了转换：`https://github.com/ggml-org/llama.cpp/blob/master/docs/multimodal.md`
 
 注意：最好不要手动下载模型，而是 `llama-server -hf ggml/Qwen2.5... ` 会自动下载模型和mmproj，手动下载不要只下载模型，还要点开`files and versions`找到里面对应的mmproj模型下载。
+
+只要有模型+mmproj就可以进行多模态任务，模型可以是原版的，也可是ggml库的，但如果模型本身不支持多模态，强行加载会出错
 
 
 ## llama.cpp 的底层实现原理
