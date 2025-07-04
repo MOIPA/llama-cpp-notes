@@ -328,6 +328,30 @@ int main() {
 
 更好的交互方式：语音+蓝牙交互，以后研究
 
+## 开启多模态支持
+
+### 模型支持
+
+llama.cpp项目初期就支持了llava，(lava.cpp,cli.cpp)，编译的llava-cli就用来跑llava
+
+随后增加了mobileVlm支持（轻量llava）
+
+随后又支持了若干模型，模型越多，会话的chat模版越复杂，添加了若干 xxx-cli导致异常复杂
+
+最后引入了libmtmd替换lava.cpp，提供统一的命令行接口，mtmd-cli就可以加载若干不同模型
+
+### mmproj
+
+> 全称 Multi-model project 
+
+llamacpp支持的多模态实现，首先需要一个embedding层对图片进行编码输出向量。这个embedding层是独立于llamacpp项目的，现在的许多视觉模型（比如clip）都是基于ViT的，他们的预处理（归一，卷积等）和投影（图像特征->模型语义空间）差别很大，将它们直接集成到 libllama 中目前还比较困难，所以独立了embedding模型
+
+因此llamacpp的多模态需要两个模型（中期融合）
+
++ llm
++ 处理图像的模型（encoding和projection两个工作）
+
+
 ## llama.cpp 的底层实现原理
 
 llama.cpp 不依赖 PyTorch 或 TensorFlow，而是自己实现了：
