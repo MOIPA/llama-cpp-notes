@@ -6,7 +6,7 @@
 
 ---
 
-## 🌟 一、先回答你第一个问题：**VLA 是什么？**
+## 🌟 一、第一个问题：**VLA 是什么？**
 
 ### ✅ VLA 全称是：**Vision-Language-Action Model**
 
