@@ -66,7 +66,7 @@ npm install @react-navigation/elements      # 可选
 
   需要注意的是，模型比较大可能会提示heapsize空间不足的报错：在android目录下的gradle.properties中调整大小`org.gradle.jvmargs=-Xmx4G -XX:MaxMetaspaceSize=3G`
 
-4. 添加多模态支持，增加上传图片组件：`npx expo install expo-image-picker`
+4. 添加多模态支持，增加上传图片组件：未完成
 
 #### 代码
 
