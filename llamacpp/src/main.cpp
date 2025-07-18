@@ -9,7 +9,7 @@ int main(int argc, char ** argv) {
     std::string model_path = "../model/qwen.gguf";
 
     // 输入的提示词（prompt）
-    std::string prompt = "我的名字是qwen";
+    std::string prompt = "what is llama";
 
     // GPU 加速的层数（设置为99表示尽可能多的层都放到GPU）
     int ngl = 99;
@@ -109,11 +109,10 @@ int main(int argc, char ** argv) {
 
     // 新生成的 token ID
     llama_token new_token_id;
+    llama_batch batch = llama_batch_get_one(prompt_tokens.data(), prompt_tokens.size());
 
     // 主循环，直到生成完 n_predict 个 token 或遇到结束符
-    for (int n_pos = 0; n_pos + prompt_tokens.size() < n_prompt + n_predict; ) {
-        // 构造一个 batch（可以一次喂多个 token 给模型）
-        llama_batch batch = llama_batch_get_one(prompt_tokens.data(), prompt_tokens.size());
+    for (int n_pos = 0; n_pos + batch.n_tokens < n_prompt + n_predict; ) {
 
         // 将这个 batch 输入模型进行推理（前向计算）
         if (llama_decode(ctx, batch)) {
@@ -147,7 +146,7 @@ int main(int argc, char ** argv) {
         fflush(stdout);  // 强制刷新输出缓冲区（让输出立刻显示）
 
         // 将新生成的 token 放入下一轮的 batch
-        prompt_tokens.push_back(new_token_id);
+        batch = llama_batch_get_one(&new_token_id, 1);
         n_decode += 1;
     }
 

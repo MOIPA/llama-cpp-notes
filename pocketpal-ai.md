@@ -213,3 +213,14 @@ Chat页面的左上角菜单栏，点击可以呼出抽屉导航器
 
 本组件是整个chat页面的所有内容，会用到1-8的所有组件
 
+
+## 仿写
+
+1. 初始化项目
+
+2. 初始化数据库模块
+
+```
+yarn add @nozbe/watermelondb
+yarn add @nozbe/with-observables @nozbe/graphql-adapter
+```

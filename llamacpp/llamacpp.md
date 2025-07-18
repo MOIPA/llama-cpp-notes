@@ -2,7 +2,7 @@
 
 对llamacpp项目的学习和理解
 
-## 编译安装
+## linux下编译安装
 
 使用了源码安装，系统newstartos，gcc和g++是8.4.1
 
@@ -18,7 +18,35 @@
 
 7. 可选安装：sudo cp build/bin /usr/local/bin
 
-## 使用
+## android ndk编译和使用
+
+
+
+### 编译
+
+命令(都是从android studio下载的)：
+
+```
+export ANDROID_NDK=/home/0668001490/Android/Sdk/ndk/29.0.13599879
+
+# -DCMAKE_TOOLCHAIN_FILE  这个是使用ndk平台编译的意思，不写就用linux平台g++和依赖库编译了
+# 写入配置文件
+/home/0668001490/Android/Sdk/cmake/4.0.2/bin/cmake -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK/build/cmake/android.toolchain.cmake -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-28 -DCMAKE_C_FLAGS="-march=armv8.7a"  -DCMAKE_CXX_FLAGS="-march=armv8.7a" -DGGML_OPENMP=OFF -DGGML_LLAMAFILE=OFF -DLLAMA_CURL=OFF -B build-android
+
+# 开始编译  4线程执行
+/home/0668001490/Android/Sdk/cmake/4.0.2/bin/cmake --build build-android --config Release -j 4
+
+# 安装编译后内容
+# 它的作用是将项目构建过程中生成的特定文件（例如可执行文件、库文件、头文件、文档等）从构建目录 (build-android) 复制到一个用户指定的安装目录 ({install-dir})
+cmake --install build-android --prefix {install-dir} --config Release
+```
+
+### android JNI使用
+
+编译成功后，现在拥有了可以直接在 Android JNI 项目中使用 .so 共享库文件，而不需要再像之前那样将 llama.cpp 的全部源码拷贝到你的项目中并尝试在 Android Studio 的构建系统（如 CMake 或 ndk-build）中重新编译
+
+
+## 命令行/C代码 基本使用
 
 1. 去hg下载几个gguf格式的量化模型
 
