@@ -4,7 +4,9 @@ project(llama_demo)
 # 设置 C++ 标准
 # set(CMAKE_CXX_STANDARD 11)
 # set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED True)
+set(CMAKE_CXX_EXTENSIONS Off) # 可选，但推荐关闭编译器特定扩展
 
 
 # 设置构建类型（Debug/Release）
@@ -19,8 +21,8 @@ include_directories(${PROJECT_SOURCE_DIR}/include)
 # 设置 lib 目录路径
 set(LIB_DIR ${PROJECT_SOURCE_DIR}/lib)
 
-# 查找 lib 目录下的所有 .so 文件（Linux）
-file(GLOB LIBS "${LIB_DIR}/*.so")
+# 查找 lib 目录下的所有 .so 文件（Linux） 和 .a 文件（静态库）
+file(GLOB LIBS "${LIB_DIR}/*.so" "${LIB_DIR}/*.a")
 
 
 if(LIBS)
@@ -30,7 +32,10 @@ else()
 endif()
 
 # 添加可执行文件
-add_executable(${PROJECT_NAME} src/main.cpp)
+add_executable(${PROJECT_NAME} 
+src/main.cpp
+src/encapsule.cpp
+)
 
 
 # 链接所有 .so 文件
