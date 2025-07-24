@@ -20,7 +20,7 @@
 
 ## android ndk编译和使用
 
-
+使用android-studio提供的ndk，cmake编译链工具预编译移动平台的动态链接库，android项目中引入动态链接库通过JNI方式调用完成模型核心功能部署。
 
 ### 编译
 
@@ -41,10 +41,565 @@ export ANDROID_NDK=/home/0668001490/Android/Sdk/ndk/29.0.13599879
 cmake --install build-android --prefix {install-dir} --config Release
 ```
 
+编译的结果默认是基于arm64-v8a的，编译时已经指定了参数`-march=armv8.7a`
+
+> install-dir中内容
+
+1. bin：存放android下可执行文件
+2. include: 核心功能的所有头文件（没有common.h）
+3. lib：动态链接库，没有libcommon.a静态库
+
+官方的示例中还是使用了common.h内的一些函数，如果想使用，得去build-android/common内找到缺失的libcommon.a静态库，并添加common.h头文件才能在android项目中使用common_的函数
+
 ### android JNI使用
 
 编译成功后，现在拥有了可以直接在 Android JNI 项目中使用 .so 共享库文件，而不需要再像之前那样将 llama.cpp 的全部源码拷贝到你的项目中并尝试在 Android Studio 的构建系统（如 CMake 或 ndk-build）中重新编译
 
+补充说明：官方示例会用到common包里的函数，但是common包编译的默认是静态库，搜索下编译的结果找到libcommon.a正常引入
+
+> 在一个android项目中
+
+0. 拷贝ndk编译好的所有so和a库到：`src/main/jniLibs/arm64-v8a`，android会自动寻找jniLibs，并根据手机平台决定使用哪个ABI，现在手机基本都是arm64位架构的，固定`arm64-v8a`就行
+1. 拷贝模型文件到:`src/main/assets/qwen.gguf`
+2. 拷贝可能会用到的头文件至：`src/main/cpp/include/llama`
+3. 编写CMakeLists.txt文件：`src/main/cpp/CMakeLists.txt` ,内容如下：
+
+    ```
+    cmake_minimum_required(VERSION 3.18.1)
+
+    project("woof") # 你的JNI项目的名字
+
+    # 1. 设置头文件包含目录
+    #    llama.cpp 的头文件 (llama.h, ggml.h 等) 复制到了
+    #    src/main/cpp/include/llama_sdk/ 目录下
+    include_directories(
+            ${CMAKE_CURRENT_SOURCE_DIR}/include/llama # 指向你拷贝头文件的路径
+    )
+
+    # 2. 添加 JNI 封装库
+    add_library(
+            woof # 通过 System.loadLibrary("woof") 加载的 JNI 库的名字
+            SHARED
+            ChatJNIWrapper.cpp # JNI C++源文件
+    )
+
+    # 3. 查找并链接预编译的共享库
+    #    这些 .so 文件应该位于你的 jniLibs/<ABI>/ 目录下，例如 src/main/jniLibs/arm64-v8a/
+
+    #    设置预编译库所在的目录。
+    #    这个路径是相对于你的模块的 src/main/ 目录。
+    #    确保 Gradle 的 android.sourceSets.main.jniLibs.srcDirs 配置正确。
+    #    通常默认是 ['src/main/jniLibs']
+    set(PREBUILT_LIBS_DIR ${CMAKE_SOURCE_DIR}/../jniLibs/${CMAKE_ANDROID_ARCH_ABI})
+
+    #    为 libllama.so 创建一个 IMPORTED 库目标
+    add_library(llama_shared SHARED IMPORTED GLOBAL) # GLOBAL 可选，但有时有帮助
+    set_target_properties(llama_shared PROPERTIES
+            IMPORTED_LOCATION ${PREBUILT_LIBS_DIR}/libllama.so
+    )
+
+    #    为 libggml.so 创建一个 IMPORTED 库目标
+    add_library(ggml_shared SHARED IMPORTED GLOBAL)
+    set_target_properties(ggml_shared PROPERTIES
+            IMPORTED_LOCATION ${PREBUILT_LIBS_DIR}/libggml.so
+    )
+
+    #    为 libggml-base.so 创建一个 IMPORTED 库目标
+    add_library(ggml_base_shared SHARED IMPORTED GLOBAL)
+    set_target_properties(ggml_base_shared PROPERTIES
+            IMPORTED_LOCATION ${PREBUILT_LIBS_DIR}/libggml-base.so
+    )
+
+    #    为 libggml-cpu.so 创建一个 IMPORTED 库目标
+    add_library(ggml_cpu_shared SHARED IMPORTED GLOBAL)
+    set_target_properties(ggml_cpu_shared PROPERTIES
+            IMPORTED_LOCATION ${PREBUILT_LIBS_DIR}/libggml-cpu.so
+    )
+
+    #    为 libmtmd.so 创建一个 IMPORTED 库目标 (如果存在)
+    #    请确认 libmtmd.so 是否确实是必须的，以及它的确切用途和来源。
+    #    如果它只是 libllama.so 或 libggml*.so 的内部依赖，并且都在 jniLibs 目录中，
+    #    运行时链接器会自动处理，你可能不需要在这里显式为它创建 IMPORTED 目标并链接。
+    #    但为了编译时符号解析，显式链接有时更安全。
+    add_library(mtmd_shared SHARED IMPORTED GLOBAL)
+    set_target_properties(mtmd_shared PROPERTIES
+            IMPORTED_LOCATION ${PREBUILT_LIBS_DIR}/libmtmd.so
+    )
+
+    #    链接你的 JNI 库 (woof) 到所有需要的共享库
+    target_link_libraries(
+            woof
+            PRIVATE # 或者 PUBLIC，取决于你的需求和头文件暴露程度
+            llama_shared
+            ggml_shared
+            ggml_base_shared
+            ggml_cpu_shared
+            mtmd_shared      # 如果你确定需要显式链接它
+            log              # Android 日志库
+            # atomic         # 如果确实需要，可以取消注释
+            # m              # 数学库，通常会被隐式链接，但显式写出也无妨
+    )
+    # 确保在你的 build.gradle (Module: app) 文件中，你有类似这样的配置
+    # android {
+    #    defaultConfig {
+    #    applicationId = "com.example.woof"
+    #    minSdk = 28
+    #    ....
+    #    externalNativeBuild {
+    #        cmake {
+    #            cppFlags += ""
+    #        }
+    #    }
+    #   }
+    #    ...
+    #    externalNativeBuild {
+    #        cmake {
+    #            path = file("src/main/cpp/CMakeLists.txt")
+    #            version = "3.22.1"
+    #        }
+    #    }
+    # }
+
+    ```
+4. 编写调用头文件函数，编写模型交互功能：`src/main/cpp/ChatJNIWrapper.cpp`:
+
+    ```c
+    #include <jni.h>
+    #include <string>
+    #include <vector>
+    #include <android/log.h> // For Android logging
+    #include "llama.h"       // llama.h must be accessible
+
+    #define TAG "ChatJNIWrapper_Simple"
+    #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
+    #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
+
+    static llama_model *g_model = nullptr;
+    static llama_context *g_ctx = nullptr;
+    static llama_sampler *g_smpl = nullptr; // Added sampler
+    static const llama_vocab *g_vocab = nullptr; // Added vocab
+
+    void throw_java_exception(JNIEnv* env, const char* class_name, const char* message) {
+        jclass exClass = env->FindClass(class_name);
+        if (exClass != nullptr) {
+            env->ThrowNew(exClass, message);
+        }
+    }
+    extern "C" JNIEXPORT jboolean JNICALL
+    Java_com_example_woof_LlamaCppBridge_nativeInit(
+            JNIEnv *env,
+            jobject /* this */,
+            jstring model_path_jni) {
+        if (g_smpl) { llama_sampler_free(g_smpl); g_smpl = nullptr; }
+        if (g_ctx) { llama_free(g_ctx); g_ctx = nullptr; }
+        if (g_model) { llama_model_free(g_model); g_model = nullptr; }
+        g_vocab = nullptr;
+        const char *c_model_path = env->GetStringUTFChars(model_path_jni, nullptr);
+        if (c_model_path == nullptr) {
+            LOGE("Failed to get model path string.");
+            throw_java_exception(env, "java/io/IOException", "Failed to get model path string.");
+            return JNI_FALSE;
+        }
+        std::string model_path_str = c_model_path;
+        env->ReleaseStringUTFChars(model_path_jni, c_model_path);
+        LOGI("Initializing Llama model from: %s", model_path_str.c_str());
+        llama_log_set([](ggml_log_level level, const char *text, void * /*user_data*/) {
+            if (level >= GGML_LOG_LEVEL_WARN) { // Log warnings and errors
+                __android_log_print(level == GGML_LOG_LEVEL_ERROR ? ANDROID_LOG_ERROR : ANDROID_LOG_WARN, "llama.cpp", "%s", text);
+            }
+        }, nullptr);
+
+        llama_backend_init(); // For newer llama.cpp with llama_backend_init(numa)
+        llama_model_params model_params = llama_model_default_params();
+
+        g_model = llama_model_load_from_file(model_path_str.c_str(), model_params);
+        if (!g_model) {
+            LOGE("Error: unable to load model at %s", model_path_str.c_str());
+            throw_java_exception(env, "java/io/IOException", "Unable to load llama model.");
+            return JNI_FALSE;
+        }
+        LOGI("Model loaded successfully.");
+
+        g_vocab = llama_model_get_vocab(g_model);
+        if (!g_vocab) {
+            LOGE("Error: Failed to get vocabulary from model.");
+            llama_model_free(g_model); g_model = nullptr;
+            throw_java_exception(env, "java/lang/RuntimeException", "Failed to get vocabulary.");
+            return JNI_FALSE;
+        }
+        llama_context_params ctx_params = llama_context_default_params();
+        ctx_params.n_ctx = 512;   // Reduced context size for simple demo
+        ctx_params.n_batch = 512; // Should generally be <= n_ctx
+
+        g_ctx = llama_init_from_model(g_model, ctx_params);
+        if (!g_ctx) {
+            LOGE("Error: failed to create the llama_context.");
+            llama_model_free(g_model); g_model = nullptr;
+            throw_java_exception(env, "java/lang/RuntimeException", "Failed to create llama context.");
+            return JNI_FALSE;
+        }
+        LOGI("Context created successfully.");
+
+        g_smpl = llama_sampler_chain_init(llama_sampler_chain_default_params());
+        if (!g_smpl) {
+            LOGE("Error: failed to create sampler chain.");
+            llama_free(g_ctx); g_ctx = nullptr;
+            llama_model_free(g_model); g_model = nullptr;
+            throw_java_exception(env, "java/lang/RuntimeException", "Failed to create sampler chain.");
+            return JNI_FALSE;
+        }
+        llama_sampler_chain_add(g_smpl, llama_sampler_init_min_p(0.05f, 1));
+        llama_sampler_chain_add(g_smpl, llama_sampler_init_temp(0.8f)); // Slightly lower temp for more coherent short output
+
+        llama_sampler_chain_add(g_smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED)); // Use default seed
+        LOGI("Sampler created and configured.");
+
+        return JNI_TRUE;
+    }
+
+    extern "C" JNIEXPORT jstring JNICALL
+    Java_com_example_woof_LlamaCppBridge_nativeGenerate(
+            JNIEnv *env,
+            jobject /* this */,
+            jstring prompt_jni) {
+        llama_kv_self_clear(g_ctx);
+        if (!g_model || !g_ctx || !g_smpl || !g_vocab) {
+            LOGE("Generation called before successful initialization or after release.");
+            throw_java_exception(env, "java/lang/IllegalStateException", "Llama not initialized or already released.");
+            return nullptr;
+        }
+
+        const char *c_prompt = env->GetStringUTFChars(prompt_jni, nullptr);
+        if (c_prompt == nullptr) {
+            LOGE("Failed to get prompt string.");
+            throw_java_exception(env, "java/lang/RuntimeException", "Failed to get prompt string.");
+            return nullptr;
+        }
+        std::string prompt_str = c_prompt;
+        env->ReleaseStringUTFChars(prompt_jni, c_prompt);
+        LOGI("Generating for prompt: %s", prompt_str.c_str());
+        std::string response_str;
+        const int max_tokens_to_generate = 64; // Limit for this demo
+        int tokens_generated = 0;
+        const bool is_first_eval = llama_memory_seq_pos_max(llama_get_memory(g_ctx), 0) == -1;
+
+        const int n_prompt = -llama_tokenize(g_vocab, prompt_str.c_str(), prompt_str.size(), NULL, 0, true, true);
+        std::vector<llama_token> prompt_tokens(n_prompt);
+        LOGI("Prompt tokenized into %d tokens.", n_prompt);
+        int n_prompt_tokens = llama_tokenize(g_vocab, prompt_str.c_str(), prompt_str.length(), prompt_tokens.data(), prompt_tokens.size(), is_first_eval, true);
+        if ( n_prompt_tokens < 0) {
+            LOGE("Failed to tokenize prompt (buffer too small or other error). n_prompt_tokens: %d", n_prompt_tokens);
+            throw_java_exception(env, "java/lang/RuntimeException", "Failed to tokenize prompt.");
+            return nullptr;
+        }
+        llama_batch batch = llama_batch_get_one(prompt_tokens.data(), prompt_tokens.size());
+        llama_token new_token_id;
+        while (tokens_generated < max_tokens_to_generate) {
+            int n_ctx_val = llama_n_ctx(g_ctx);
+            int n_ctx_used = llama_memory_seq_pos_max(llama_get_memory(g_ctx), 0); // Current sequence length
+            if (n_ctx_used + batch.n_tokens > n_ctx_val) {
+                LOGE("Context size exceeded during generation. Used: %d, Batch: %d, Max: %d", n_ctx_used, batch.n_tokens, n_ctx_val);
+                break;
+            }
+            if (llama_decode(g_ctx, batch) != 0) { // 0 on success
+                LOGE("llama_decode failed.");
+                throw_java_exception(env, "java/lang/RuntimeException", "llama_decode failed.");
+                return nullptr;
+            }
+            new_token_id = llama_sampler_sample(g_smpl, g_ctx, -1); // -1 means use the last token of the current sequence
+            if (llama_vocab_is_eog(g_vocab, new_token_id)) {
+                LOGI("EOG token reached.");
+                break;
+            }
+            char buf[256]; // Buffer for the token piece
+            int n_chars = llama_token_to_piece(g_vocab, new_token_id, buf, sizeof(buf), 0, true);
+            if (n_chars < 0) {
+                LOGE("Failed to convert token to piece.");
+                throw_java_exception(env, "java/lang/RuntimeException", "Failed to convert token to piece.");
+                return nullptr;
+            }
+            std::string piece(buf, n_chars);
+            response_str += piece;
+            tokens_generated++;
+            batch = llama_batch_get_one(&new_token_id, 1);
+        }
+        LOGI("Generated response: %s", response_str.c_str());
+        return env->NewStringUTF(response_str.c_str());
+    }
+    extern "C" JNIEXPORT void JNICALL
+    Java_com_example_woof_LlamaCppBridge_nativeRelease(
+            JNIEnv *env,
+            jobject /* this */) {
+        LOGI("Releasing Llama resources.");
+        if (g_smpl) {
+            llama_sampler_free(g_smpl);
+            g_smpl = nullptr;
+            LOGI("Sampler freed.");
+        }
+        if (g_ctx) {
+            llama_free(g_ctx);
+            g_ctx = nullptr;
+            LOGI("Context freed.");
+        }
+        if (g_model) {
+            llama_model_free(g_model);
+            g_model = nullptr;
+            LOGI("Model freed.");
+        }
+        g_vocab = nullptr; // Reset vocab pointer
+        LOGI("Llama resources released.");
+    }
+
+    ```
+
+5. 编写功能函数cpp的kotlin映射调用文件：`src/main/java/com/example/woof`:
+
+    ```java
+    package com.example.woof 
+    import android.util.Log
+    object LlamaCppBridge {
+        private const val TAG = "LlamaCppBridge_Simple"
+        external fun nativeInit(modelPath: String): Boolean
+        external fun nativeGenerate(prompt: String): String? // Null if error
+        external fun nativeRelease()
+        init {
+            try {
+                System.loadLibrary("woof") // Name from CMakeLists.txt add_library()
+                Log.i(TAG, "Native library 'woof' loaded successfully.")
+            } catch (e: UnsatisfiedLinkError) {
+                Log.e(TAG, "Failed to load native library 'woof'", e)
+                throw e 
+            }
+        }
+    }
+    ```
+
+6. 在一个ViewModel中调用kotlin内的模型函数功能：`src/main/java/com/example/woof/ui/ViewModel.kt`
+
+    ```java
+        class LLMViewModel(private val applicationContext: Context) : ViewModel() {
+            var llamaPromptInput by mutableStateOf("") // State for Llama's input field
+            private set
+
+            fun updateLlamaPromptInput(newPrompt: String) {
+                llamaPromptInput = newPrompt
+            }
+
+            private val TAG_LLM = "GameViewModel_LLM"
+
+            var outputTextLlm by mutableStateOf("Initializing LLM...")
+                private set
+
+            var currentModelName by mutableStateOf("Smol-256M")
+                private set
+
+            private var isLlmInitialized = false
+
+            // Llama 初始化
+            init { // 类的初始化代码块，它会在类被创建（实例化）时自动执行一次
+                initializeLlama()
+            }
+
+            private fun initializeLlama() {
+                viewModelScope.launch {
+                    outputTextLlm =
+                        "Copying model and initializing Llama..." 
+                    val success = withContext(Dispatchers.IO) {
+                        try {
+                            // 默认在assets目录下 拷贝到自己应用空间内
+                            val modelName = "qwen.gguf" 
+                            val modelFile = File(applicationContext.filesDir, modelName)
+                            if (!modelFile.exists()) {
+                                Log.d(TAG_LLM, "Model file does not exist. Copying from assets...")
+                                try {
+                                    applicationContext.assets.open(modelName).use { inputStream ->
+                                        FileOutputStream(modelFile).use { outputStream ->
+                                            inputStream.copyTo(outputStream)
+                                        }
+                                    }
+                                    Log.d(TAG_LLM, "Model copied to ${modelFile.absolutePath}")
+                                } catch (e: Exception) {
+                                    Log.e(TAG_LLM, "Error copying model from assets: ${e.message}", e)
+                                    outputTextLlm =
+                                        "Error: Could not copy model. Place '$modelName' in app/src/main/assets/"
+                                    return@withContext false
+                                }
+                            } else {
+                                Log.d(TAG_LLM, "Model file already exists at ${modelFile.absolutePath}")
+                            }
+
+                            // --- 初始化模型
+                            Log.d(TAG_LLM, "Calling nativeInit with path: ${modelFile.absolutePath}")
+                            LlamaCppBridge.nativeInit(modelFile.absolutePath) // This should return boolean
+                        } catch (e: Exception) {
+                            Log.e(TAG_LLM, "Error during Llama initialization: ${e.message}", e)
+                            outputTextLlm = "Error initializing Llama: ${e.message}"
+                            false // Return false from withContext block
+                        }
+                    }
+
+                    if (success) {
+                        isLlmInitialized = true
+                        outputTextLlm = "Llama initialized. Ready to generate."
+                        Log.d(TAG_LLM, "Llama nativeInit successful.")
+                    } else {
+                        isLlmInitialized = false
+                        Log.e(TAG_LLM, "Llama nativeInit failed.")
+                        if (outputTextLlm.startsWith("Initializing") || outputTextLlm.startsWith("Copying")) {
+                            outputTextLlm = "Error: Llama initialization failed. Check Logcat for details."
+                        }
+                    }
+                }
+            }
+
+            fun generateLlmText(prompt: String) { 
+                // 手动添加了一个模版 这个模版只和qwen系列模型适配
+                val systemMessage = "You are a helpful assistant."
+                val formatedPrompt = """
+                <|im_start|>system
+                $systemMessage<|im_end|>
+                <|im_start|>user
+                $prompt<|im_end|>
+                <|im_start|>assistant
+                """.trimIndent()
+
+                if (!isLlmInitialized) {
+                    outputTextLlm = "Error: Llama not initialized."
+                    Log.w(TAG_LLM, "generateLlmText called but Llama not initialized.")
+                    return
+                }
+                if (prompt.isBlank()) {
+                    outputTextLlm = "Please enter a prompt for LLM."
+                    return
+                }
+
+                outputTextLlm = "Generating LLM text..."
+                viewModelScope.launch {
+                    val result =
+                        withContext(Dispatchers.Default) { 
+                            try {
+                                Log.d(TAG_LLM, "Calling nativeGenerate with prompt: $prompt")
+                                LlamaCppBridge.nativeGenerate(formatedPrompt) 
+                            } catch (e: Exception) {
+                                Log.e(TAG_LLM, "Error during Llama generation: ${e.message}", e)
+                                "Error generating LLM text: ${e.message}"
+                            }
+                        }
+                    outputTextLlm = result ?: "LLM Generation returned null (error or no output)."
+                    Log.d(TAG_LLM, "LLM Generation result: $outputTextLlm")
+                }
+            }
+
+            override fun onCleared() {
+                super.onCleared()
+                if (isLlmInitialized) {
+                    viewModelScope.launch(Dispatchers.IO) { 
+                        Log.d(TAG_LLM, "ViewModel cleared. Releasing Llama resources.")
+                        try {
+                            LlamaCppBridge.nativeRelease() 
+                            isLlmInitialized = false
+                        } catch (e: Exception) {
+                            Log.e(TAG_LLM, "Error releasing Llama resources: ${e.message}", e)
+                        }
+                    }
+                }
+                Log.d("GameViewModel", "GameViewModel Cleared") // General log for ViewModel clear
+            }
+        }
+        // You NEED this Factory to create GameViewModel with a Context parameter
+        class LLMViewModelFactory(private val context: Context) : ViewModelProvider.Factory {
+            override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                if (modelClass.isAssignableFrom(LLMViewModel::class.java)) {
+                    @Suppress("UNCHECKED_CAST")
+                    return LLMViewModel(context.applicationContext) as T // Pass applicationContext
+                }
+                throw IllegalArgumentException("Unknown ViewModel class")
+            }
+        }
+    ```
+7. 对应的UI界面中和ViewModel的变量以及函数交互：`src/main/java/com/example/woof/ui/Screen.kt`
+
+    ```java
+        @Composable
+        fun GameScreen(llmViewModel: LLMViewModel = viewModel(
+            factory = LLMViewModelFactory(LocalContext.current.applicationContext)
+        )) {  
+            Column(
+                modifier = Modifier
+                    .statusBarsPadding()
+                    .verticalScroll(rememberScrollState())
+                    .safeDrawingPadding()
+                    .padding(mediumPadding),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+
+                Text(
+                    text = stringResource(R.string.app_name),
+        //            text= stringFromJNI(),
+                    style = typography.titleLarge,
+                )
+                GameLayout(
+                    currentModelName = llmViewModel.currentModelName,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .wrapContentHeight()
+                        .padding(mediumPadding),
+                    outputTextLlm = llmViewModel.outputTextLlm
+                )
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(mediumPadding),
+                    verticalArrangement = Arrangement.spacedBy(mediumPadding),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Button(
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = {
+                            llmViewModel.generateLlmText(gameViewModel.userGuess)
+                            llmViewModel.updateUserGuess("")
+                        }
+                    ) {
+                        Text(
+                            text = stringResource(R.string.submit),
+                            fontSize = 16.sp
+                        )
+                    }
+                }
+            }
+        }
+        @Composable
+        fun GameLayout(
+            currentModelName:String,modifier: Modifier = Modifier,
+            outputTextLlm: String){
+            val mediumPadding = dimensionResource(R.dimen.padding_medium)
+                Card(
+                    modifier = modifier,
+                    elevation = CardDefaults.cardElevation(defaultElevation = 5.dp)
+                ) {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(mediumPadding),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(mediumPadding)
+                    ) {
+                        Text(
+                            text = currentModelName,
+                            style = typography.displayMedium
+                        )
+                        Text(
+                            text = outputTextLlm, // Display the Llama output state
+                            style = typography.bodyMedium,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp)
+                        )
+                    }
+                }
+            }
+    ```
+
+8. 运行android程序，编译的时候可能报错内存不足，因为打包到apk的资产中的模型比较大，增加配置的空间就行
 
 ## 命令行/C代码 基本使用
 
