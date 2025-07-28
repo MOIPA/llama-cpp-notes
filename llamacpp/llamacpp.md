@@ -2,6 +2,13 @@
 
 对llamacpp项目的学习和理解
 
+移动端使用的设备是努比亚手机，需要调整默认的日志输出级别：
+`adb shell setprop persist.log.tag V`
+
+android系统日志等级有 VERBOSE（V）>DEBUG（D）>INFO（I）>WARN（W）>ERROR（E）>FATA（F）>SILENT（S）
+
+注意：移动端设备GPU加速前下载aida64或者cpuz查看移动端设备是否支持vulkan或者openCL，选择对应的编译
+
 ## linux下编译安装
 
 使用了源码安装，系统newstartos，gcc和g++是8.4.1
@@ -50,6 +57,114 @@ cmake --install build-android --prefix {install-dir} --config Release
 3. lib：动态链接库，没有libcommon.a静态库
 
 官方的示例中还是使用了common.h内的一些函数，如果想使用，得去build-android/common内找到缺失的libcommon.a静态库，并添加common.h头文件才能在android项目中使用common_的函数
+
+### GPU加速
+
+比较常见的两种，openCL和vulkan
+
+#### openCL
+
+基于openCL版本的编译
+
+本机的cmake版本太低，使用android-studio提供的：`export CHOME=/home/0668001490/Android/Sdk/cmake/4.0.2/bin/`
+
+1. 编译拷贝需要的openCL依赖头和loader
+
+    ```
+    mkdir llm
+    cd llm
+    git clone https://github.com/KhronosGroup/OpenCL-Headers
+    cd OpenCL-Headers
+    cp -r CL $ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include
+    ls $ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include/CL
+    cd ..
+    git clone https://github.com/KhronosGroup/OpenCL-ICD-Loader
+    cd OpenCL-ICD-Loader
+    mkdir build_ndk && cd build_ndk
+    
+    $CHOME/cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK/build/cmake/android.toolchain.cmake -DOPENCL_ICD_LOADER_HEADERS_DIR=$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=24 -DANDROID_STL=c++_shared 
+    
+    ninja 
+
+    cp libOpenCL.so $ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android
+    ```
+
+2. 编译llama.cpp依赖库，开启openCL
+
+    ```
+    cd llama.cpp
+    mkdir build-android-openCL && cd build-android-openCL
+
+    $CHOME/cmake .. -G Ninja -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK/build/cmake/android.toolchain.cmake -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-28 -DBUILD_SHARED_LIBS=ON -DGGML_OPENCL=ON -DLLAMA_CURL=OFF -DCMAKE_C_FLAGS="-march=armv8.7a" -DCMAKE_CXX_FLAGS="-march=armv8.7a" -DGGML_OPENMP=OFF -DGGML_LLAMAFILE=OFF
+
+    ninja
+    cmake --install ./ --prefix ./android-res --config Release\n
+    ```
+3. 从安装的android-res和build目录下拷贝动态链接库和静态库linbcommon.a到安卓项目下替换原来的库
+
+注意：llama.cpp编译的openCL功能相关的后端依赖库libggml-opencl.so依赖android底层的openCL驱动：libOpenCL.so，而android系统为了安全和稳定限制了能访问的系统库，需要手动指定需要加载的库，修改AndroidManifest.xml文件
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <application
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        ......
+        <uses-native-library android:name="libOpenCL.so" android:required="true"/>
+    </application>
+
+</manifest>
+```
+
+#### vulkan
+
+vulkan需要设置vulkanSDK，依赖最新的glibc和gcc编译器。本机电脑的glibc和gcc都比较老，需要更新
+
+> vulkanSDK设置较为简单，下载解压缩添加LD_LIBRARY_PATH即可，参考官方文档
+
+需要注意的是如果glibc编译后报错ld.so的错误，说明编译的gcc版本不够，需要先编译gcc再编译glibc，编译完成gcc后`export CC=/opt/gcc-10.1/gcc`,`export CXX=/opt/gcc-10.1/g++`
+
+1. 更新glibc，无法更新系统，只能手动编译，编译的包放在/opt下，需要的程序手动指定`ld_path`
+
+    ```bash
+    # 下载glibc 2.29 版本，解压缩
+    mkdir glibc-build
+    # 配置
+    ../glibc-2.29/configure --prefix=/opt/glibc-2.29 --disable-profile --enable-add-ons --with-headers=/usr/include --enable-obsolete-nsl
+    # 编译
+    make -j$(nproc)
+    # 安装
+    sudo make install
+    # 使用
+    # 在~/.zshrc内export LD_LIBRARY_PATH="/opt/glibc-2.29/lib:$LD_LIBRARY_PATH"
+    # 这种方式对全局有效，但是如果编译的结果只被部分安装的话，还是手动指定应用程序吧，如下
+    LD_LIBRARY_PATH="/opt/glibc-2.29/lib:$LD_LIBRARY_PATH" /opt/vulkan-1.4/x86_64/bin/glslc
+    ```
+
+2. 更新GCC，方式同上
+    ```bash
+    mkdir gcc-build && cd gcc-build
+    # 我的os的依赖库
+    sudo dnf install gmp-devel
+    sudo dnf install mpfr-devel
+    sudo dnf install libmpc-devel
+    # 编译64和32位
+    ../gcc-10.1.0/configure --prefix=/opt/gcc-10.1
+    # 只编译64位
+    ../gcc-10.1.0/configure --prefix=/opt/gcc-10.1 --disable-multilib
+    make -j$(nproc)
+    sudo make install
+    export LD_LIBRARY_PATH="/opt/gcc-10.1/lib64:$LD_LIBRARY_PATH"
+    ```
+
+3. 进入llama.cpp项目，创建build文件夹：`mkdir build-vulkan&&cd build-vulkan`，然后执行CMake配置：`$CHOME/cmake ..  -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK/build/cmake/android.toolchain.cmake -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-28 -DBUILD_SHARED_LIBS=ON -DGGML_VULKAN=ON -DLLAMA_CURL=OFF -DCMAKE_C_FLAGS="-march=armv8.7a" -DCMAKE_CXX_FLAGS="-march=armv8.7a" -DGGML_OPENMP=OFF -DGGML_LLAMAFILE=OFF`，主要是开启VULKAN=ON 其他参数不变
+
+4. 执行编译：`$CHOME/cmake --build . --config Release -j4`
+
+5. install到本地目录方便拷贝头文件和动态库：`cmake --install ./ --prefix ./android-res --config Release`
 
 ### android JNI使用
 
