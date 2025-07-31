@@ -119,6 +119,8 @@ cmake --install build-android --prefix {install-dir} --config Release
 </manifest>
 ```
 
+OpenCL backend 对Q_8量化比较差目前，推理速度不如CPU
+
 #### vulkan
 
 vulkan需要设置vulkanSDK，依赖最新的glibc和gcc编译器。本机电脑的glibc和gcc都比较老，需要更新
